@@ -1,0 +1,375 @@
+{
+  "events": [
+    {
+      "label": "read counter",
+      "observation": {
+        "after": 0,
+        "assertion_passed": null,
+        "before": 0,
+        "error": null,
+        "expected": null
+      },
+      "operation": "load",
+      "resource": "counter",
+      "runnable": [
+        0,
+        1
+      ],
+      "shared_state_after": [
+        {
+          "kind": "atomic_int",
+          "name": "counter",
+          "value": 0
+        }
+      ],
+      "shared_state_before": [
+        {
+          "kind": "atomic_int",
+          "name": "counter",
+          "value": 0
+        }
+      ],
+      "step": 0,
+      "thread": 0,
+      "threads": [
+        {
+          "id": 0,
+          "state": "runnable"
+        },
+        {
+          "id": 1,
+          "state": "runnable"
+        },
+        {
+          "id": 2,
+          "state": "blocked"
+        }
+      ],
+      "type": "shared_state",
+      "wait_for": [
+        {
+          "kind": "join",
+          "resource": "",
+          "thread": 2,
+          "waits_for": 0
+        },
+        {
+          "kind": "join",
+          "resource": "",
+          "thread": 2,
+          "waits_for": 1
+        }
+      ]
+    },
+    {
+      "label": "read counter",
+      "observation": {
+        "after": 0,
+        "assertion_passed": null,
+        "before": 0,
+        "error": null,
+        "expected": null
+      },
+      "operation": "load",
+      "resource": "counter",
+      "runnable": [
+        0,
+        1
+      ],
+      "shared_state_after": [
+        {
+          "kind": "atomic_int",
+          "name": "counter",
+          "value": 0
+        }
+      ],
+      "shared_state_before": [
+        {
+          "kind": "atomic_int",
+          "name": "counter",
+          "value": 0
+        }
+      ],
+      "step": 1,
+      "thread": 1,
+      "threads": [
+        {
+          "id": 0,
+          "state": "runnable"
+        },
+        {
+          "id": 1,
+          "state": "runnable"
+        },
+        {
+          "id": 2,
+          "state": "blocked"
+        }
+      ],
+      "type": "shared_state",
+      "wait_for": [
+        {
+          "kind": "join",
+          "resource": "",
+          "thread": 2,
+          "waits_for": 0
+        },
+        {
+          "kind": "join",
+          "resource": "",
+          "thread": 2,
+          "waits_for": 1
+        }
+      ]
+    },
+    {
+      "label": "write local + 1",
+      "observation": {
+        "after": 1,
+        "assertion_passed": null,
+        "before": 0,
+        "error": null,
+        "expected": null
+      },
+      "operation": "store",
+      "resource": "counter",
+      "runnable": [
+        0,
+        1
+      ],
+      "shared_state_after": [
+        {
+          "kind": "atomic_int",
+          "name": "counter",
+          "value": 1
+        }
+      ],
+      "shared_state_before": [
+        {
+          "kind": "atomic_int",
+          "name": "counter",
+          "value": 0
+        }
+      ],
+      "step": 2,
+      "thread": 0,
+      "threads": [
+        {
+          "id": 0,
+          "state": "runnable"
+        },
+        {
+          "id": 1,
+          "state": "runnable"
+        },
+        {
+          "id": 2,
+          "state": "blocked"
+        }
+      ],
+      "type": "shared_state",
+      "wait_for": [
+        {
+          "kind": "join",
+          "resource": "",
+          "thread": 2,
+          "waits_for": 0
+        },
+        {
+          "kind": "join",
+          "resource": "",
+          "thread": 2,
+          "waits_for": 1
+        }
+      ]
+    },
+    {
+      "label": "write local + 1",
+      "observation": {
+        "after": 1,
+        "assertion_passed": null,
+        "before": 1,
+        "error": null,
+        "expected": null
+      },
+      "operation": "store",
+      "resource": "counter",
+      "runnable": [
+        1
+      ],
+      "shared_state_after": [
+        {
+          "kind": "atomic_int",
+          "name": "counter",
+          "value": 1
+        }
+      ],
+      "shared_state_before": [
+        {
+          "kind": "atomic_int",
+          "name": "counter",
+          "value": 1
+        }
+      ],
+      "step": 3,
+      "thread": 1,
+      "threads": [
+        {
+          "id": 0,
+          "state": "terminated"
+        },
+        {
+          "id": 1,
+          "state": "runnable"
+        },
+        {
+          "id": 2,
+          "state": "blocked"
+        }
+      ],
+      "type": "shared_state",
+      "wait_for": [
+        {
+          "kind": "join",
+          "resource": "",
+          "thread": 2,
+          "waits_for": 1
+        }
+      ]
+    },
+    {
+      "label": "",
+      "observation": {
+        "after": null,
+        "assertion_passed": null,
+        "before": null,
+        "error": null,
+        "expected": null
+      },
+      "operation": "join",
+      "resource": "0,1",
+      "runnable": [
+        2
+      ],
+      "shared_state_after": [
+        {
+          "kind": "atomic_int",
+          "name": "counter",
+          "value": 1
+        }
+      ],
+      "shared_state_before": [
+        {
+          "kind": "atomic_int",
+          "name": "counter",
+          "value": 1
+        }
+      ],
+      "step": 4,
+      "thread": 2,
+      "threads": [
+        {
+          "id": 0,
+          "state": "terminated"
+        },
+        {
+          "id": 1,
+          "state": "terminated"
+        },
+        {
+          "id": 2,
+          "state": "runnable"
+        }
+      ],
+      "type": "join",
+      "wait_for": []
+    },
+    {
+      "label": "counter == 2 after both increments",
+      "observation": {
+        "after": 1,
+        "assertion_passed": false,
+        "before": 1,
+        "error": null,
+        "expected": 2
+      },
+      "operation": "assert_equal",
+      "resource": "counter",
+      "runnable": [
+        2
+      ],
+      "shared_state_after": [
+        {
+          "kind": "atomic_int",
+          "name": "counter",
+          "value": 1
+        }
+      ],
+      "shared_state_before": [
+        {
+          "kind": "atomic_int",
+          "name": "counter",
+          "value": 1
+        }
+      ],
+      "step": 5,
+      "thread": 2,
+      "threads": [
+        {
+          "id": 0,
+          "state": "terminated"
+        },
+        {
+          "id": 1,
+          "state": "terminated"
+        },
+        {
+          "id": 2,
+          "state": "runnable"
+        }
+      ],
+      "type": "assertion",
+      "wait_for": []
+    }
+  ],
+  "limits": {
+    "max_steps": 1000,
+    "timeout_ms": 1000
+  },
+  "outcome": {
+    "message": "counter == 2 after both increments",
+    "shared_state": [
+      {
+        "kind": "atomic_int",
+        "name": "counter",
+        "value": 1
+      }
+    ],
+    "status": "assertion_failed",
+    "threads": [
+      {
+        "id": 0,
+        "state": "terminated"
+      },
+      {
+        "id": 1,
+        "state": "terminated"
+      },
+      {
+        "id": 2,
+        "state": "terminated"
+      }
+    ],
+    "wait_for": []
+  },
+  "program": "lost-update/v1",
+  "schedule": [
+    0,
+    1,
+    0,
+    1,
+    2,
+    2
+  ],
+  "schema_version": 1
+}

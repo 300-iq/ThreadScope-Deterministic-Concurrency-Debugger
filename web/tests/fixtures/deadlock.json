@@ -1,0 +1,162 @@
+{
+  "events": [
+    {
+      "label": "",
+      "observation": {
+        "after": 0,
+        "assertion_passed": null,
+        "before": null,
+        "error": null,
+        "expected": null
+      },
+      "operation": "lock",
+      "resource": "first",
+      "runnable": [
+        0,
+        1
+      ],
+      "shared_state_after": [
+        {
+          "kind": "mutex",
+          "name": "first",
+          "value": 0
+        },
+        {
+          "kind": "mutex",
+          "name": "second",
+          "value": null
+        }
+      ],
+      "shared_state_before": [
+        {
+          "kind": "mutex",
+          "name": "first",
+          "value": null
+        },
+        {
+          "kind": "mutex",
+          "name": "second",
+          "value": null
+        }
+      ],
+      "step": 0,
+      "thread": 0,
+      "threads": [
+        {
+          "id": 0,
+          "state": "runnable"
+        },
+        {
+          "id": 1,
+          "state": "runnable"
+        }
+      ],
+      "type": "lock_acquire",
+      "wait_for": []
+    },
+    {
+      "label": "",
+      "observation": {
+        "after": 1,
+        "assertion_passed": null,
+        "before": null,
+        "error": null,
+        "expected": null
+      },
+      "operation": "lock",
+      "resource": "second",
+      "runnable": [
+        0,
+        1
+      ],
+      "shared_state_after": [
+        {
+          "kind": "mutex",
+          "name": "first",
+          "value": 0
+        },
+        {
+          "kind": "mutex",
+          "name": "second",
+          "value": 1
+        }
+      ],
+      "shared_state_before": [
+        {
+          "kind": "mutex",
+          "name": "first",
+          "value": 0
+        },
+        {
+          "kind": "mutex",
+          "name": "second",
+          "value": null
+        }
+      ],
+      "step": 1,
+      "thread": 1,
+      "threads": [
+        {
+          "id": 0,
+          "state": "runnable"
+        },
+        {
+          "id": 1,
+          "state": "runnable"
+        }
+      ],
+      "type": "lock_acquire",
+      "wait_for": []
+    }
+  ],
+  "limits": {
+    "max_steps": 1000,
+    "timeout_ms": 1000
+  },
+  "outcome": {
+    "message": "all unfinished threads are blocked",
+    "shared_state": [
+      {
+        "kind": "mutex",
+        "name": "first",
+        "value": 0
+      },
+      {
+        "kind": "mutex",
+        "name": "second",
+        "value": 1
+      }
+    ],
+    "status": "deadlock",
+    "threads": [
+      {
+        "id": 0,
+        "state": "blocked"
+      },
+      {
+        "id": 1,
+        "state": "blocked"
+      }
+    ],
+    "wait_for": [
+      {
+        "kind": "mutex",
+        "resource": "second",
+        "thread": 0,
+        "waits_for": 1
+      },
+      {
+        "kind": "mutex",
+        "resource": "first",
+        "thread": 1,
+        "waits_for": 0
+      }
+    ]
+  },
+  "program": "mutex-deadlock/v1",
+  "schedule": [
+    0,
+    1
+  ],
+  "schema_version": 1
+}

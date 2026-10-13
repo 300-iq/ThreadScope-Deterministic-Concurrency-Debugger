@@ -1,0 +1,15 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { parseTrace } from '../shared/trace.ts';
+import { checkpoint, failureIndex, navigate } from '../src/navigation.ts';
+const fixture=(name:string)=>parseTrace(readFileSync(new URL(`./fixtures/${name}.json`,import.meta.url),'utf8'));
+const failing=fixture('lost-update');
+test('forward and backward traverse recorded checkpoints',()=>{assert.equal(navigate(failing,0,'forward'),1);assert.equal(navigate(failing,1,'back'),0);assert.equal(navigate(failing,5,'forward'),6);});
+test('clamp navigation and jump to endpoints',()=>{assert.equal(navigate(failing,0,'back'),0);assert.equal(navigate(failing,6,'forward'),6);assert.equal(navigate(failing,4,'start'),0);assert.equal(navigate(failing,0,'end'),6);assert.equal(checkpoint(failing,NaN).cursor,0);assert.equal(checkpoint(failing,-4).cursor,0);});
+test('assertion failure targets actual assertion event',()=>{assert.equal(failureIndex(failing),5);assert.equal(navigate(failing,0,'failure'),5);assert.equal(checkpoint(failing,5).event?.observation.assertion_passed,false);});
+test('deadlock targets terminal checkpoint rather than fabricated lock event',()=>{const t=fixture('deadlock');assert.equal(failureIndex(t),2);const end=checkpoint(t,navigate(t,0,'failure'));assert.equal(end.terminal,true);assert.equal(end.event,undefined);assert.equal(end.waits?.length,2);});
+test('passing traces have no failure jump',()=>{const t=fixture('corrected-counter');assert.equal(failureIndex(t),null);assert.equal(navigate(t,2,'failure'),2);});
+test('inspector uses before-state at the same point as wait dependencies',()=>{const t=fixture('ordered-locks');const point=checkpoint(t,3);assert.equal(point.shared?.[0].value,0);assert.equal(point.event?.shared_state_after?.[0].value,null);assert.deepEqual(point.waits,[{thread:1,waits_for:0,kind:'mutex',resource:'first'}]);const next=checkpoint(t,4);assert.equal(next.shared?.[0].value,null);assert.deepEqual(next.waits,[]);});
+test('terminal inspector uses recorded outcome',()=>{const point=checkpoint(failing,6);assert.equal(point.shared?.[0].value,1);assert.deepEqual(point.threads,failing.outcome.threads);assert.equal(point.terminal,true);});
+test('zero-operation terminal traces are navigable',()=>{const t=structuredClone(failing);t.events=[];t.schedule=[];t.outcome.status='deadlock';assert.equal(navigate(t,0,'forward'),0);assert.equal(checkpoint(t,0).event,undefined);assert.equal(failureIndex(t),0);});

@@ -1,0 +1,28 @@
+{
+  "events": [],
+  "limits": {
+    "max_steps": 1000,
+    "timeout_ms": 1000
+  },
+  "outcome": {
+    "message": "",
+    "shared_state": [
+      {
+        "kind": "atomic_int",
+        "name": "",
+        "value": 0
+      },
+      {
+        "kind": "atomic_int",
+        "name": "𐀀",
+        "value": 0
+      }
+    ],
+    "status": "completed",
+    "threads": [],
+    "wait_for": []
+  },
+  "program": "unicode-resources/v1",
+  "schedule": [],
+  "schema_version": 1
+}

@@ -2,3 +2,9 @@
 .env
 .env.*
 !.env.example
+/build*/
+/artifacts/
+*.profraw
+/web/node_modules/
+/web/dist/
+/web/coverage/
