@@ -1,7 +1,7 @@
 import type { Exploration, PatchScenario, PatchVerification } from './api.ts';
 import { integer, isFailure, parseTrace, record } from './trace.ts';
 
-// These are existing compiled implementations, never proposed/generated fixes.
+// Scenario pairs map to the compiled C++ registry.
 export const patchScenarios = [
   {
     id: 'counter' as const, name: 'Lost-update counter',

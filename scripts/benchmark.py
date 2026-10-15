@@ -55,7 +55,7 @@ def cache_value(cache, key):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--build-dir', type=Path, default=ROOT / 'build-audit-release')
+    parser.add_argument('--build-dir', type=Path, default=ROOT / 'build-release')
     parser.add_argument('--output', type=Path, default=ROOT / 'artifacts/benchmark.json')
     parser.add_argument('--trials', type=positive, default=10)
     parser.add_argument('--replay-trials', type=positive, default=5)

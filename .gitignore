@@ -5,6 +5,8 @@
 /build*/
 /artifacts/
 *.profraw
+__pycache__/
+*.py[cod]
 /web/node_modules/
 /web/dist/
 /web/coverage/

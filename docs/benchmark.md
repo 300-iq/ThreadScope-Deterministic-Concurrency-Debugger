@@ -1,11 +1,11 @@
-# Reproducible benchmark methodology
+# Benchmarks
 
 Run from a fresh Release build, with sanitizers disabled:
 
 ```sh
-cmake -S . -B build-audit-release -DCMAKE_BUILD_TYPE=Release -DTHREADSCOPE_WARNINGS_AS_ERRORS=ON
-cmake --build build-audit-release --parallel 4
-python3 scripts/benchmark.py --build-dir build-audit-release --output artifacts/benchmark.json --trials 10 --replay-trials 5 --baseline-samples 100 --max-schedules 100 --max-steps 8 --timeout-ms 5000
+cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DTHREADSCOPE_WARNINGS_AS_ERRORS=ON
+cmake --build build-release --parallel 4
+python3 scripts/benchmark.py --build-dir build-release --output artifacts/benchmark.json --trials 10 --replay-trials 5 --baseline-samples 100 --max-schedules 100 --max-steps 8 --timeout-ms 5000
 ```
 
 `tools/benchmark.cpp` executes the actual scenario factories and DFS engine.

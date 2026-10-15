@@ -1,263 +1,132 @@
 # Architecture
 
-## Scope and guarantee
+## Components
 
-ThreadScope explores the order of explicitly instrumented operations in small
-C++ programs. It runs actual `std::thread` workers, but it does **not** intercept
-arbitrary instructions, unmodified binaries, native locks, or external I/O.
-Determinism requires deterministic, bounded worker-local computation between
-instrumented operations, fresh state for each run, and no uncontrolled shared
-state access. It guarantees the controlled operation order and recorded state
-observations under those assumptions.
-
-This guarantee is conditional on reaching those checkpoints within the run's
-wall-clock budget. OS descheduling can cause a timeout even for a valid replay.
-Timeout diagnostics, including the final progress snapshot, are not deterministic
-model outcomes and are not claimed to be replayable.
-
-The monitor introduces synchronization between operations. This is exploration
-of operation interleavings, **not** a C++ weak-memory model checker. In particular,
-it does not enumerate hardware reorderings or all relaxed-atomic outcomes of an
-uncontrolled program. It is a bug finder within its explicit model and bounds,
-not a proof of correctness for arbitrary concurrent C++ code.
-
-## Components and ownership
-
-- `threadscope_core`: scheduler, result/event types, bounded stateless DFS, and
-  JSON encoding/decoding. No CLI, HTTP, browser, or UI dependencies.
-- `threadscope_examples`: recreates the counter, tasks, and scheduler each run.
-- `threadscope`: selects run/explore/replay/branch, checks arguments, writes traces, and
-  reports exit codes. A static registry names lost-update, its RMW fix, and the
-  two-mutex deadlock and consistent-order scenarios; JSON does not load arbitrary code.
-- Tests: library scenarios plus CLI/file integration.
-- `web/`: React/TypeScript trace inspection and a localhost Node adapter. The
-  adapter invokes the fixed CLI in a child process, validates bounds, loads real
-  all-run traces, and separately verifies replay. No frontend code changes the
-  C++ scheduler. See [web-debugger.md](web-debugger.md).
-
-The scheduler assigns contiguous IDs in registration order. The registration
-table is frozen before launching workers. A `Context` is owned by its worker and
-must not be shared. Each operation checks the caller's native thread ID under
-the monitor before posting a request; foreign live-context use is rejected.
-This check does not make escaped or dangling contexts safe. Resources must
-outlive `run()` and belong to one run at a time.
-Registering new threads during a run and reusing a scheduler are rejected. The
-first implementation limits registration to 64 workers.
+| Component | Responsibility |
+| --- | --- |
+| `threadscope_core` | Scheduler, controlled operations, DFS, trace encoding and replay |
+| `threadscope_examples` | Four scenario factories with fresh resources/tasks per execution |
+| `threadscope` | Independent CLI for run, explore, replay, and branch |
+| `web/server` | Local HTTP adapter that invokes the fixed C++ executable |
+| `web/shared` | Trace/request validation and implementation-pair metadata |
+| `web/src` | Timeline, state inspection, What-If, and implementation comparison |
 
 ## Scheduling protocol
 
-1. Launch every registered worker; initial state is `running`.
-2. A worker submits its next built-in operation and parks on the scheduler's
-   condition variable. It is now a pending request. Workers that return become
-   `terminated`.
-3. The driver waits until **every** worker is pending or terminated. This barrier
-   is necessary: selecting the first worker to arrive would depend on OS timing.
-4. Under the monitor, recompute each pending request's eligibility. A lock with
-   an owner, or a join with unfinished targets, is `blocked`; eligible requests
-   are `runnable`. Collect runnable IDs in ascending order.
-5. Choose a forced schedule/replay entry, or the lowest runnable ID by default.
-   An unavailable ID is a mismatch, never silently skipped.
-6. Grant exactly one request. The selected real worker executes its built-in
-   operation under the monitor and records its observation. No user callbacks
-   execute under the monitor. Other workers remain parked.
-7. The selected worker continues bounded local computation outside the monitor.
-   The driver waits for its next request or termination before choosing again.
+Logical IDs are assigned in registration order, with at most 64 workers. The
+registration table is frozen before native threads start. A scheduler is single
+use. Each context belongs to its registered native worker; foreign-thread use is
+rejected before posting an operation. Contexts and referenced resources must not
+escape their lifetimes. Registration and `run()` are single-owner APIs.
 
-The same barrier is used for failure reporting. After a controlled failure,
-the failing task unwinds before its wrapper publishes termination. Unselected
-workers stay parked until the driver records the final state table; only then
-does it cancel them. This prevents OS cancellation wakeup order from changing a
-replayable failure outcome. Startup/local exceptions are collected per thread;
-after the barrier, the lowest failing logical ID supplies the diagnostic.
-User-overridable exception `what()` methods execute outside the monitor.
-Diagnostic-copy allocation failures retain a per-thread error flag, with a
-fallback message supplied by the driver instead of letting an exception escape
-the worker wrapper.
+1. Every worker starts in `running` and executes deterministic, bounded local work.
+2. An instrumented operation posts a pending request and waits on the scheduler's
+   condition variable. Returning from the task publishes `terminated`.
+3. The driver waits until every worker is pending or terminated.
+4. Under the monitor, it recomputes runnable and blocked requests and collects
+   enabled logical IDs in ascending order.
+5. It validates a forced/replayed choice, or selects the lowest runnable ID.
+6. The selected worker executes one bounded built-in action under the monitor;
+   its event records before/after observations and registered resource snapshots.
+7. The worker resumes local computation. No further choice occurs until all
+   workers are quiescent again.
 
-The monitor is a real `std::mutex`; waiting uses a real `std::condition_variable`
-with predicate checks. Grants, states, event history, and cancellation are
-protected by that mutex. All worker threads are joined before `run()` returns.
-There are no detached threads, spin polling, random arrival-order choices, or
-unsynchronized accesses to scheduler bookkeeping.
+The monitor protects requests, grants, states, cancellation, and event history.
+Native request arrival order cannot change the decision set. Relaxed atomic
+operations are race-free and ordered by monitor handoffs; this does not model
+the relaxed-memory behaviors of an uncontrolled C++ program.
 
-## State and primitive model
+## Operations and dependencies
 
-`AtomicInt` holds `std::atomic<int>`. `load`, `store`, and `fetch_add` are each one
-controlled operation, using relaxed atomics. The monitor supplies the execution
-order. Separate load/store operations do not form a transaction: worker-local
-values can become stale between them. The example's `local + 1` only operates on
-0 or 1, so it does not risk signed overflow.
+Supported operations are atomic load/store/fetch-add, assert-equal, yield,
+modeled mutex lock/unlock, and logical join. Register relevant resources using
+`track()` before `run()`. Unique resource names give sorted snapshots. Untracked
+resources retain operation observations but have no full-state snapshot.
 
-`ControlledMutex` represents ownership and eligibility. Lock acquisition and
-unlock are controlled events. Workers never park inside a native mutex held by
-another logical worker. A non-owner unlock is a recorded worker error; a
-recursive acquisition blocks because the mutex is non-recursive. There is no
-implicit unlock when a task terminates. If a terminated task retains a needed
-mutex, remaining blocked tasks cause a deadlock result.
+Modeled mutex acquisitions remain pending while owned. Acquiring and releasing
+ownership are nonblocking scheduler-controlled transitions. Workers never wait
+inside a native application mutex while holding an execution permit. A non-owner
+unlock is a worker error; recursive acquisition blocks on the same owner.
 
-Pending requests also retain their awaited mutex or logical join targets under
-the monitor. After refreshing eligibility at the quiescent barrier, blocked
-requests produce sorted, unique directed dependencies from the waiting thread
-to the mutex owner or unfinished join target. Both pre-selection events and
-the final stop decision record this wait-for graph. The graph uses actual
-resource identity internally; names are its serialized labels. A recursive
-lock produces a self-edge. Waiting on a terminated lock owner is retained as a
-dependency; joins omit terminated targets. Thus graph reporting does not infer
-waiting from OS wakeups or depend on native lock acquisition order.
+Logical join waits for registered target workers to terminate. Wait-for edges
+describe unfinished joins and mutex owners. Deadlock requires unfinished workers
+with no enabled operation. A cycle is reported separately: another runnable worker
+can still make progress, and a terminated worker retaining a lock can cause
+deadlock without a cycle.
 
-Cycle detection is a bounded graph traversal over at most 64 logical IDs.
-Global deadlock detection remains the absence of enabled operations with
-unfinished workers. A cycle can exist while an unrelated worker is still
-runnable, and a retained owner can deadlock a run without a cycle. The CLI
-distinguishes these facts. Lock acquisition itself is only an owner-state write
-under the scheduler monitor; it never calls a native application mutex lock.
+## Exploration and replay
 
-`join_all` is an instrumented wait for logical termination. It does not call a
-blocking OS thread join from a worker. Empty target lists are immediately
-eligible; invalid/self targets are rejected. The driver owns actual OS joins.
+DFS advances the deepest remaining runnable alternative in ascending ID order.
+Each leaf starts a fresh factory invocation. A spine references immutable prior
+decisions rather than copying every candidate prefix. Recorded runnable states,
+forced prefixes, lowest-ID default choices, and step limits are checked for drift.
+Custom factories remain responsible for hidden local/global state reset.
 
-`assert_equal` reads at its selected step, records observed and expected values,
-and terminates the run on failure. Assertions do not change the resource value.
-`yield` is an explicit scheduling point without a state mutation.
+`max_schedules` counts executions and `max_steps` counts controlled operations.
+A final leaf at the schedule cap can exhaust the frontier. Step-limited leaves
+remain unfinished even when the bounded frontier is exhausted. Environmental
+errors stop search without declaring exhaustion. Full histories are retained;
+search has exponential cost and no partial-order reduction.
 
-## Events and replay
+Replay structurally validates the trace before execution. At each decision it
+checks the runnable set, thread states, operation/resource/label, and available
+before snapshots/dependencies before granting a permit. It then compares the
+observation and after snapshot, followed by the complete terminal outcome.
+There is no fallback choice, and divergence after mutation cannot be rolled back.
+Legacy schema-v1 traces omit some metadata; replay checks the fields present.
 
-Each event contains a zero-based step, selected logical thread, ordered runnable
-set, the state table **before** selection, operation kind, resource name, label,
-and before/after observation. Assertion events also contain expected value and
-pass/fail; operation errors carry a message. Names/labels are caller supplied,
-so callers should use stable, unique resource names.
-`EventType` classifies these operations as `shared_state`, `lock_acquire`,
-`lock_release`, `assertion`, `join`, or `yield`. The JSON `type` is derived from
-`operation`, so the two cannot disagree in a generated history; a conflicting
-type in an input trace is rejected.
+What-If first verifies the original trace, then executes a fresh scenario with
+the original prefix and one new choice. The prefix and branch checkpoint are
+validated before permits. The suffix selects the lowest runnable ID. Original
+and modified traces are stored separately and replayed independently.
 
-`Scheduler::track()` registers built-in atomic/mutex snapshot readers before
-launching workers. The registry is frozen during a run and sorted by resource
-name, so registration/OS arrival order cannot change snapshot order. Snapshots
-cover all registered values/owners before and after each operation, and at the
-stop decision. Register all relevant resources; the engine cannot discover
-arbitrary shared memory. Old untracked callers still record operation observations.
+Patch & Verify explores two registered implementations with identical bounds.
+Only search settings are shared; a broken trace is not reused against a different
+implementation. Event counts, operations, and enabled sets can change.
 
-Termination is reflected in subsequent state tables and the final outcome;
-it is not an extra schedule choice. Final states are captured at the stop
-decision, **before** cancellation cleanup, to retain blocked/stalled information.
-There are no timestamps or platform-specific OS thread IDs in the trace.
+## Failure handling
 
-Strict replay restores every selection. Before granting it, the driver compares
-the runnable/state tables, pending operation/resource/label, and recorded shared
-state before the operation. Metadata divergence stops before executing the
-operation. Observations and shared state after the operation are checked after
-execution; those divergences are not rolled back. `replay_trace()` additionally
-compares every recorded event and final status/message/state table/shared state.
-Missing, extra, unavailable, or divergent choices fail explicitly. Legacy v1
-traces without shared snapshots validate all fields they actually recorded.
-Recorded wait-for graphs are compared before granting each operation and at the
-final outcome; legacy traces omitting graphs retain their original checks.
-Timeouts and worker exceptions preserve their diagnostic status even when replay
-choices remain; the CLI reports that verification could not finish instead of
-claiming a schedule mismatch.
+The driver snapshots the stop state before cancellation. Unselected workers stay
+parked until that snapshot, preserving failure-state determinism. Exceptions are
+collected per worker; the lowest failing logical ID supplies a startup diagnostic
+after the barrier. User-overridable exception diagnostics execute outside the
+monitor. An allocation-free flag preserves errors when diagnostic copying fails.
 
-`program` is a manually versioned scenario ID: `lost-update/v1`,
-`lost-update-rmw/v1`, `mutex-deadlock/v1`, or `mutex-ordered/v1`.
-It is not a cryptographic binary/source fingerprint. Changed
-code that produces different recorded behavior is rejected; source revisions
-with identical observed behavior are indistinguishable in this milestone.
-Timeout/environmental-error traces are diagnostic, not accepted for CLI replay.
-There is no arbitrary code loading from JSON.
+Cleanup marks stopping, wakes waiters, and joins every successfully launched
+native thread outside the monitor. Deadlines are checked after waiting even if a
+predicate becomes true while the driver is descheduled. Timeouts and allocation/
+thread-creation failures are environmental diagnostics, outside stable replay.
+In-process cancellation cannot terminate infinite local work, native blocking,
+blocking destructors, or code that suppresses cancellation indefinitely.
 
-## Bounded exploration
+## Local API
 
-Stateless DFS reruns a scenario factory from fresh resources for each forced
-prefix. A spine holds one frame per step and references immutable decisions in
-retained run results. Backtracking advances the deepest unvisited runnable ID,
-popping exhausted frames; choices are visited in ascending ID order. The
-remaining unforced suffix uses the lowest-ID policy. It never
-changes per-thread program order. There is no partial-order reduction, fairness
-filter, state hashing, schedule minimization, or random search yet.
+| Route | Input |
+| --- | --- |
+| `GET /api/scenarios` | Catalog descriptions read from CLI help |
+| `POST /api/explore` | `{scenario, maxSchedules, maxSteps, timeoutMs}` |
+| `POST /api/replay` | `{trace}` |
+| `POST /api/branch` | `{trace, step, thread}` |
+| `POST /api/patch-verify` | `{scenario, maxSchedules, maxSteps, timeoutMs}`; pair is `counter` or `lock-order` |
 
-Registered factories construct every resource/task/scheduler locally on every
-call. Custom factories must do the same; the library cannot clone arbitrary C++
-captures. Prefix checks detect changes in recorded history/pre-choice state and
-stop with divergence instead of claiming an exhaustive search. They do not prove
-the absence of hidden untracked state. Factories must also honor the supplied
-configuration. The explorer rejects histories exceeding the requested step bound
-or choosing a non-minimum runnable ID in the unforced suffix: its backtracking
-would otherwise skip lower choices and falsely report exhaustion. These checks
-run before the result callback. They detect observable violations, not every
-possible factory error or elapsed-time-budget override.
-The DFS spine is linear in depth; retained
-run histories still consume memory proportional to recorded schedules/events.
+The server binds to `127.0.0.1`, checks Host/Origin, requires JSON POST bodies,
+rejects unknown fields, and limits requests to 8 MiB. It invokes only the fixed
+`build/threadscope` executable using an argument array with `shell:false`.
+Requests cannot select an executable, filesystem path, or shell command.
 
-The optional result callback runs after all workers join and before advancing
-the next schedule. The CLI uses it to persist assertion/deadlock traces immediately.
-If saving fails, exploration stops with an error; it never silently drops a trace.
+One exploration/replay/branch/comparison job runs at a time. Each job uses an
+isolated temporary directory removed in `finally`. A 30-second child-process
+watchdog and disconnect signal terminate unfinished executions. The adapter waits
+for child closure before releasing a killed job. Catalog queries have a separate
+five-second watchdog.
 
-Each run ends at step bounds, failure, completion, or deadlock; search backtracks
-and continues until no alternatives remain or its schedule cap is reached.
-`frontier_exhausted` describes the explored **bounded tree**, not correctness.
-The CLI also marks a search `incomplete` if any run reached a safety limit or
-environmental error. The six possible orders of the example's four update
-operations are exhaustively covered; the checker can run only afterward.
-`schedule_bound_reached` means an unvisited alternative remains at the cap;
-`step_bound_reached` means at least one run was truncated. A cap equal to the
-total number of leaves does not incorrectly report an incomplete search.
+Exploration accepts 1–100 schedules, 1–256 steps, and 100–5000 ms per run. Replay
+accepts at most 1000 configured steps and 5000 ms. The viewer caps traces at 8 MiB
+and 1000 events. Output caps are 16 MiB of traces per job, 512 KiB stdout, and
+128 KiB stderr. Summary counts, exit codes, trace identities and bounds must agree.
 
-## Limits and cancellation
-
-- Step bounds stop an instrumented infinite loop after the configured number of
-  operations. Blocked workers are awakened by cancellation.
-- No runnable requests with unfinished workers means a logical deadlock. This
-  detects modeled lock/join dependencies, not arbitrary native deadlocks.
-- A steady-clock deadline detects a worker failing to reach its next request or
-  a run consuming too long. Condition-variable waits use that deadline.
-- Failures and worker exceptions trigger cancellation and cleanup.
-
-**A timeout is cooperative, not a hard wall-clock termination guarantee.** C++
-has no safe way to kill a `std::thread`. After detection, `run()` still joins its
-workers. Bounded local work may finish after the deadline; an infinite loop or
-blocking native call outside the framework can prevent joining indefinitely.
-Applications that accept untrusted/uncooperative tasks need subprocess isolation
-and an external watchdog. The CLI runs our built-in factories; CTest imposes
-outer process timeouts. Do not catch and suppress the
-framework's private cancellation control flow with a catch-all in a task.
-The bounded-work assumption also includes task destructors and exception
-diagnostic callbacks. Framework operations can throw cancellation; task code
-must not allow that exception to escape a `noexcept` destructor.
-
-## Future work, outside this milestone
-
-Add source/build fingerprints, schedule shrinking, additional modeled
-synchronization primitives, and broader isolation before expanding workload
-scope. The local API now runs the CLI in a child process with bounded options
-and a watchdog, exposing recorded traces to React/TypeScript/Vite. Schedule
-editing remains future work and must validate choices against actual execution.
-JSON is the UI boundary, and the scheduler remains a separate C++ library.
-Direct CLI/library callers retain cooperative joining limitations.
-
-## What-if branching
-
-`branch_config` derives a forced prefix from a structurally validated original
-trace and one replacement choice. The CLI first strictly replays that entire
-original, then runs the scenario factory again with fresh resources and workers.
-The new scheduler validates all unchanged prefix events, including observations,
-and checks recorded eligibility/state/dependencies at the branch checkpoint
-before granting the alternative. After that choice, the ordinary lowest-runnable
-ID suffix policy resumes. Exact replay retains its original separate contract.
-The original is never used as mutable execution state or overwritten as output.
-The Node API invokes this CLI path, separately verifies the new stable trace,
-and returns both the real outcome and verification status. React compares actual
-recorded checkpoints and never calculates a counterfactual execution. See
-[what-if.md](what-if.md) for limits, fields and comparison semantics.
-
-## Patch & Verify comparison
-
-The localhost adapter maps one supported pair ID to two existing registered
-programs. A single job guard encloses separate fresh DFS searches with identical
-schedule, step and timeout limits. The existing exploration adapter validates
-both real CLI outputs, and a shared comparison parser checks identities, settings,
-counts and outcomes before returning/displaying them. No trace or execution state
-is supplied to the other implementation. React reports assertion failures and
-deadlocks separately from real terminal outcomes and retains implementation-bound
-replay/inspection. The C++ engine and trace schema remain unchanged. See
-[patch-verify.md](patch-verify.md) for the API, limits and demonstration workflow.
+UI checkpoints show before-state with its corresponding wait dependencies; terminal
+inspection uses each trace's own stop state. Shorter histories have absent
+checkpoints rather than extrapolated values. A replay badge requires a real C++
+verification result. This is a trusted local developer service, not an authenticated
+remote execution service. See [trace-format.md](trace-format.md) for schema details.
